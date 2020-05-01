@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import pathlib
 
 import inquirer
 from blessings import Terminal
@@ -188,8 +189,8 @@ def check_dependency_manager(project_path, config):
             exit(0)
         if answers['manager'] == 'Yes please':
             config['custom_commands'] = add_env_to_custom_commands(
-            manager, config['custom_commands']
-        )
+                manager, config['custom_commands']
+            )
 
 
 def add_env_to_custom_commands(manager, custom_commands):
@@ -293,7 +294,6 @@ def find_project_by_name(config):
         lambda text: ' ' not in text,
         error_message=('Spaces in project name? Really?'),
     )
-
     message = [
         ('class:brackets', '['),
         ('class:question_mark', '?'),
@@ -316,7 +316,7 @@ def find_project_by_name(config):
 def load_configs(project_config):
     """
     Loads global and user project config. Project config
-    can rewrite attributes set in global config.
+    can rewrite settings set in global config.
 
     Parameters
     ----------
@@ -328,12 +328,15 @@ def load_configs(project_config):
     dict
         Dictionary containing configuration.
     """
-    with open('configs/global_config.json', 'r') as cf:
+    script_dir = pathlib.Path(__file__).parent.absolute()
+    global_conf_path = os.path.join(script_dir, 'configs/global_config.json')
+    project_conf_dir_path = os.path.join(script_dir, 'configs/user_configs')
+    with open(global_conf_path, 'r') as cf:
         config = json.load(cf)
     if project_config:
         project_config = project_config if project_config[:-4] == '.json' \
             else f'{project_config}.json'
-        with open(os.path.join('configs/user_configs', project_config)) as cf:
+        with open(os.path.join(project_conf_dir_path, project_config)) as cf:
             config.update(json.load(cf))
     return config
 
