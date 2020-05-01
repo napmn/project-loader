@@ -1,62 +1,15 @@
 import argparse
+import json
 import os
 
 import inquirer
 from blessings import Terminal
 from inquirer.themes import Theme
 from prompt_toolkit import prompt
-from prompt_toolkit.completion import (
-    FuzzyWordCompleter, WordCompleter, FuzzyCompleter
-)
+from prompt_toolkit.completion import FuzzyWordCompleter
 from prompt_toolkit.output.color_depth import ColorDepth
 from prompt_toolkit.styles import Style
 from prompt_toolkit.validation import Validator
-
-
-# custom commands to be executed
-CUSTOM_COMMANDS = [
-    # 'sudo systemctl stop postgresql'
-    'pip freeze'
-]
-
-
-# add more managers for different languages
-DEPENDENCY_MANAGERS = [
-    {
-        'name': 'poetry',
-        'file': 'pyproject.toml',
-        'command': 'poetry shell'
-    },
-    {
-        'name': 'virtualenviroment',
-        'file': 'venv',
-        'command': 'source venv/bin/activate'
-    },
-    {
-        'name': 'pipenv',
-        'file': 'Pipfile',
-        'command': 'pipenv shell'
-    },
-]
-
-
-DEFAULT_PROJECTS_PATHS = [
-    # '/home/lukas/Documents/fun',
-    # '/home/lukas/Documents/upwork',
-    '/home/lukas/Documents',
-]
-
-
-EXCLUDE_DIRS = {
-    'venv', 'node_modules', 'lib', 'obj', 'bin', 'out', 'outputs', 'inputs',
-    'tmp', 'src', 'source', 'img', 'images', 'static', 'templates', 'models',
-    'data', 'opt', 'etc', 'test', 'tests', 'assets', 'results'
-}
-
-
-EXCLUDE_PREFIXES = (
-    '.', '__', 'config', 'build', 'doc', 'media'
-)
 
 
 class CustomTheme(Theme):
@@ -106,47 +59,46 @@ class CustomTheme(Theme):
 
 
 def parse_args():
+    """
+    Parses script arguments.
+    Flow of the script (project selection / project search)
+    depends on the provided argument.
+    """
     parser = argparse.ArgumentParser()
 
     project_group = parser.add_mutually_exclusive_group(required=True)
     project_group.add_argument(
-        '--projects-path', type=str,
-        help='Path to the directory containing projects.'
+        '--project-config', type=str, help='Name of the project config to use.'
     )
     project_group.add_argument(
         '--find-project', action='store_true',
         help=(
             'If present, try to find project by name in paths predefined'
-            ' in the script'
-        )
-    )
-    parser.add_argument(
-        '--editor', type=str, required=False, default='code',
-        help=(
-            'Editor command to be used for opening editor.'
-            ' Default is code for vscode.'
-        )
-    )
-    parser.add_argument(
-        '--activate-env', action='store_true', required=False, default=False,
-        help=(
-            'If this argument is present script will activate enviroment'
-            ' if found in the project directory'
+            ' in the global config file.'
         )
     )
     return parser.parse_args()
 
 
-def get_projects_choices(projects_dir):
+def get_subproject_choices(config):
     """
-    Lists directories in projects_dir. Only used when projects-path is
-    present in script arguments.
+    Lists directories in directory specified by project_path in config.
+    Only used when project config is selected in script arguments.
+
+    Parameters
+    ----------
+    config : dict
+        Contains settings.
+
+    Returns
+    -------
+    list of strings
+        Paths to all subprojects
     """
-    return [
-        project for project in os.listdir(projects_dir) if os.path.isdir(
-            os.path.join(projects_dir, project)
-        )
-    ]
+    return filter_directories([
+        project for project in os.listdir(config['project_path'])
+            if os.path.isdir(os.path.join(config['project_path'], project))
+    ], config)
 
 
 def get_default_shell():
@@ -156,12 +108,25 @@ def get_default_shell():
     return shell
 
 
-def open_project_terminal(project_path, shell, editor_command):
+def open_project_terminal(project_path, shell, config):
+    """
+    Opens new terminal in project_path with given shell
+    and runs custom commands as well as opens editor specified in config.
+
+    Parameters
+    ----------
+    project_path : str
+        Path of the project that should be opened.
+    shell : str
+        Name of the shell to open in terminal.
+    config: dict
+        Contains settings.
+    """
     no_color = '\\033[0m'
     light_cyan = '\\033[1;36m'
     light_green = '\\033[1;32m'
 
-    commands_to_execute = CUSTOM_COMMANDS + [f'{editor_command} .']
+    commands_to_execute = config['custom_commands'] + [f'{config["editor"]} .']
     commands_plus_echo = [
         f'echo -e \\"{light_cyan}Executing command:{no_color}\\"'\
         f' \\"{light_green}{command}{no_color}\\";{command};'
@@ -177,63 +142,147 @@ def open_project_terminal(project_path, shell, editor_command):
     )
 
 
-def check_dependency_manager(project_path, activate_env):
-    global CUSTOM_COMMANDS
+def check_dependency_manager(project_path, config):
+    """
+    Checks if any of the dependency managers is present in the project.
+    If setting for dependency manager activation for commands
+    is set to True prepends activation of env to commands
+    or activate env without spawning new shell (if possible).
+    If this setting is set to False and setting for asking
+    to activate env is True asks user if he wants to run
+    commands in activated env.
+
+    Parameters
+    ----------
+    project_path: str
+        Path to project.
+    config: dict
+        Contains settings.
+    """
     dir_content = os.listdir(project_path)
-    for manager_info in DEPENDENCY_MANAGERS:
+    for manager_info in config['dependency_managers']:
         if manager_info['file'] in dir_content:
             manager = manager_info
             break
     else:
         return None
 
-    if activate_env:
-        CUSTOM_COMMANDS = [manager['command']] + CUSTOM_COMMANDS
-    else:
+    if config.get('automatically_run_commands_in_env', False):
+        config['custom_commands'] = add_env_to_custom_commands(
+            manager, config['custom_commands']
+        )
+    elif config.get('ask_for_env_activation', False):
         questions = [
             inquirer.List(
                 'manager',
-                message=f'Do you want to activate {manager["name"]}?',
-                choices=('Yes please', 'Hell no'),
-            ),
+                message=(
+                    f'Do you want to activate / run custom commands'
+                    f' in {manager["name"]}?'
+                ),
+                choices=('Yes please', 'Nope'),
+            )
         ]
 
         answers = inquirer.prompt(questions, theme=CustomTheme())
         if answers is None:
             exit(0)
         if answers['manager'] == 'Yes please':
-            CUSTOM_COMMANDS = [manager['command']] + CUSTOM_COMMANDS
+            config['custom_commands'] = add_env_to_custom_commands(
+            manager, config['custom_commands']
+        )
 
 
-def ask_for_project_from_choices(projects_path):
-    projects = get_projects_choices(projects_path)
+def add_env_to_custom_commands(manager, custom_commands):
+    """
+    Based on dependency manager manager either prepend command
+    of the manager before each of the custom command or add
+    its activation before executing custom commands.
+    """
+    if manager['activation']:
+        # manager can be activated like for example virtualenv
+        return [manager['activation']] + custom_commands
+    else:
+        # manager cant be activated without spawning new shell
+        return [
+            manager['command'] + ' ' + command for command in custom_commands
+        ]
+
+
+def ask_for_subproject_from_choices(choices):
+    """ Returns project selected by user from choices """
     questions = [
         inquirer.List(
             'project',
             message='What project do you want to open?',
-            choices=projects,
+            choices=choices,
         ),
     ]
     answers = inquirer.prompt(questions, theme=CustomTheme())
     if answers is None:
         exit(0)
+    return answers['project']
 
-    return os.path.join(projects_path, answers['project'])
+
+def select_project(config):
+    """
+    Based on config asks user to select subproject from project
+    or sets project to be opened automatically.
+
+    Parameters
+    ----------
+    config : dict
+        Contains settings.
+
+    Returns
+    -------
+    str
+        Path to project to be opened.
+    """
+    if config['multiple_subprojects']:
+        projects = get_subproject_choices(config)
+        selected_subproject = ask_for_subproject_from_choices(projects)
+    else:
+        selected_subproject = ''
+
+    return os.path.join(config['project_path'], selected_subproject)
 
 
-def find_project_by_name():
-    def get_possible_project_directories():
+def filter_directories(directories, config):
+    """
+    Filters out directories that should be excluded or starts with
+    prefix that should be ignored.
+    """
+    return [
+        d for d in directories if d not in config['exclude_dirs']
+            and d.startswith(tuple(config['exclude_prefixes'])) is False
+    ]
+
+
+def find_project_by_name(config):
+    """
+    Implements search prompt to find project by name entered
+    by user. Uses fuzzy logic to match search with project names.
+
+    Parameters
+    ----------
+    config : dict
+        Contains settings.
+
+    Returns
+    -------
+    str
+        Path to project selected by user based on his search.
+    """
+    def get_possible_project_directories(config):
         possible_directories = []
-        for projects_path in DEFAULT_PROJECTS_PATHS:
+        for projects_path in config['default_projects_paths']:
             for root, dirs, files in os.walk(projects_path):
-                dirs[:] = [
-                    d for d in dirs if d not in EXCLUDE_DIRS
-                        and d.startswith(EXCLUDE_PREFIXES) is False
-                ]
+                # modifying dirs directly to prune search tree
+                dirs[:] = filter_directories(dirs, config)
                 possible_directories.append(root)
         return possible_directories
 
-    possible_directories = get_possible_project_directories()
+    possible_directories = get_possible_project_directories(config)
     parts = [os.path.split(d) for d in possible_directories]
     projects_paths_dict = {project: path for path, project in parts}
 
@@ -242,9 +291,7 @@ def find_project_by_name():
     )
     validator = Validator.from_callable(
         lambda text: ' ' not in text,
-        error_message=(
-            'Search must not contain spaces. Dont bother with them.'
-        ),
+        error_message=('Spaces in project name? Really?'),
     )
 
     message = [
@@ -253,33 +300,56 @@ def find_project_by_name():
         ('class:brackets', ']'),
         ('', ' Select project by name: ')
     ]
-
-    project = prompt(
-        message, completer=completer, validator=validator,
-        validate_while_typing=True, style=CustomTheme.get_prompt_style(),
-        color_depth=ColorDepth.ANSI_COLORS_ONLY
-    )
-    if project is None:
-        exit(1)
+    try:
+        project = prompt(
+            message, completer=completer, validator=validator,
+            validate_while_typing=True, style=CustomTheme.get_prompt_style(),
+            color_depth=ColorDepth.ANSI_COLORS_ONLY
+        )
+    except KeyboardInterrupt:
+        print('\nCancelled by user\n')
+        exit(0)
 
     return os.path.join(projects_paths_dict[project], project)
 
 
+def load_configs(project_config):
+    """
+    Loads global and user project config. Project config
+    can rewrite attributes set in global config.
+
+    Parameters
+    ----------
+    project_config : str or None
+        Name of the user config.
+
+    Returns
+    -------
+    dict
+        Dictionary containing configuration.
+    """
+    with open('configs/global_config.json', 'r') as cf:
+        config = json.load(cf)
+    if project_config:
+        project_config = project_config if project_config[:-4] == '.json' \
+            else f'{project_config}.json'
+        with open(os.path.join('configs/user_configs', project_config)) as cf:
+            config.update(json.load(cf))
+    return config
+
+
 def main():
     args = parse_args()
-    if args.projects_path:
-        project_path = ask_for_project_from_choices(args.projects_path)
+    config = load_configs(args.project_config)
+    if args.project_config:
+        project_path = select_project(config)
     else:
         # find_project is present in args
-        project_path = find_project_by_name()
+        project_path = find_project_by_name(config)
 
     shell = get_default_shell()
-
-    dependency_manager = check_dependency_manager(
-        project_path, args.activate_env
-    )
-
-    open_project_terminal(project_path, shell, args.editor)
+    check_dependency_manager(project_path, config)
+    open_project_terminal(project_path, shell, config)
 
 
 if __name__ == '__main__':

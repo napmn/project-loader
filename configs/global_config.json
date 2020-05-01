@@ -1,0 +1,35 @@
+{
+    "default_projects_paths": [
+      "/home/lukas/Documents"
+    ],
+    "exclude_dirs": [
+        "venv", "node_modules", "lib", "obj", "bin", "out", "outputs", "inputs",
+        "tmp", "src", "source", "img", "images", "static", "templates", "models",
+        "data", "opt", "etc", "test", "tests", "assets", "results"
+    ],
+    "exclude_prefixes": [
+        ".", "__", "config", "build", "doc", "media"
+    ],
+    "dependency_managers": [
+        {
+            "name": "poetry",
+            "file": "pyproject.toml",
+            "command": "poetry run",
+            "activation": null
+        },
+        {
+            "name": "virtualenviroment",
+            "file": "venv",
+            "command": null,
+            "activation": "source venv/bin/activate"
+        },
+        {
+            "name": "pipenv",
+            "file": "Pipfile",
+            "command": "pipenv run",
+            "activation": null
+        }
+    ],
+    "custom_commands": [],
+    "editor": "code"
+}

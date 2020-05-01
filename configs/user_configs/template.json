@@ -1,0 +1,9 @@
+{
+    "project_path": "/home/projects",
+    "multiple_subprojects": true,
+    "automatically_run_commands_in_env": false,
+    "ask_for_env_activation": true,
+    "custom_commands": [
+        "pip freeze"
+    ]
+}

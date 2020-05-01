@@ -1,3 +1,6 @@
 venv/
 .vscode/
 __pycache__/
+
+configs/user_configs/*.json
+!configs/user_configs/template.json
